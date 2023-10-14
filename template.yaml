@@ -43,6 +43,9 @@ Resources:
           OnSuccess:
             Type: EventBridge 
             Destination: !GetAtt SalesforceProcessedEventsBus.Arn
+          OnFailure:
+            Destination: !GetAtt OpportunityServiceDLQ.Arn
+            Type: SQS
       Environment:
         Variables:
           OPPORTUNITY_TABLE_NAME: !Ref OpportunityTable
@@ -115,6 +118,9 @@ Resources:
           OnSuccess:
             Type: EventBridge 
             Destination: !GetAtt SalesforceProcessedEventsBus.Arn
+          OnFailure:
+            Destination: !GetAtt OpportunityServiceDLQ.Arn
+            Type: SQS
       Environment:
         Variables:
           OPPORTUNITY_TABLE_NAME: !Ref OpportunityTable
@@ -126,7 +132,6 @@ Resources:
       SnapStart:
         ApplyOn: None
       PackageType: Zip
-
 
   OpportunityUpdatedRule:
     Type: AWS::Events::Rule
@@ -218,6 +223,20 @@ Resources:
     Properties:
       Name: SalesforceProcessedEventsBus
   
+  DLQPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource: !GetAtt OpportunityServiceDLQ.Arn
+      Queues:
+        - Ref: OpportunityServiceDLQ
+  
   OpportunityServiceDLQ:
     Type: AWS::SQS::Queue
     
@@ -227,8 +246,11 @@ Outputs:
   # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
 
   OpportunityCreatedFn:
-    Description: "Lambda Function ARN"
+    Description: "Opportunity create Lambda Function ARN"
     Value: !GetAtt OpportunityCreatedFn.Arn
+  OpportunityUpdatedFn:
+    Description: "Opportunity update Lambda Function ARN"
+    Value: !GetAtt OpportunityUpdatedFn.Arn
   OpportunityCreatedRule:
     Description: "Event bridge rule ARN"
     Value: !GetAtt OpportunityCreatedRule.Arn
