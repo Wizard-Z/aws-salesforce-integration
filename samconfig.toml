@@ -1,0 +1,10 @@
+version = 0.1
+[default.deploy.parameters]
+stack_name = "aws-sf-demo"
+resolve_s3 = false
+s3_bucket = "samclibucketz12"
+region = "ap-south-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "SalesforcePartnerEventBusArn=\"aws.partner/salesforce.com/00D5j00000Cf2AKEAZ/ChangeEvents\""
+image_repositories = []

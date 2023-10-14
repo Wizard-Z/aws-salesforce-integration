@@ -1,0 +1,15 @@
+{
+  "name": "posidex-dedupe-consumer",
+  "version": "1.0.0",
+  "description": "Function to handle posidex event and invoke find customer details.",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/lib-dynamodb": "^3.410.0"
+  }
+}

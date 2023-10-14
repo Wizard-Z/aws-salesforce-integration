@@ -1,0 +1,160 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Stack to deploy lambda that handles opportunity CDC published from salesforce. Deploys the Lambda function 
+  and configures the event that triggers it.
+
+Parameters:
+  SalesforcePartnerEventBusArn:
+    Type: String
+    Description: 'Salesforce partner eventbus arn created from the Console. Stream salesforce events directly to Amazon EventBridge.'
+
+Resources:
+  OpportunityTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+      AttributeDefinitions:
+        - AttributeName: eventId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: eventId
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+  
+  OpportunityCreatedFn:
+    Type: AWS::Serverless::Function 
+    Properties:
+      CodeUri: ./opportunity-created-service
+      Description: Function to handle opportunity created event received from salesforce
+      MemorySize: 128
+      Timeout: 10
+      Handler: index.handler
+      Runtime: nodejs16.x
+      Architectures:
+        - x86_64
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 21600
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnSuccess:
+            Type: EventBridge 
+            Destination: !GetAtt SalesforceProcessedEventsBus.Arn
+      Environment:
+        Variables:
+          OPPORTUNITY_TABLE_NAME: !Ref OpportunityTable
+      EphemeralStorage:
+        Size: 512
+      Role: !GetAtt OpportunityEventServiceRole.Arn
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Auto
+      SnapStart:
+        ApplyOn: None
+      PackageType: Zip
+
+  OpportunityCreatedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Rule to process Opportunity Created Event
+      EventBusName: !Ref SalesforcePartnerEventBusArn
+      EventPattern:
+        detail-type:
+          - OpportunityChangeEvent
+        detail:
+          payload:
+            StageName:
+              - Prospecting
+            ChangeEventHeader:
+              changeType:
+                - CREATE
+      Name: opportunity-created
+      State: ENABLED
+      Targets:
+        - Id: "opportunityCreatedId"
+          Arn: !GetAtt OpportunityCreatedFn.Arn
+          InputTransformer:
+            InputPathsMap:
+              amount: $.detail.payload.Amount
+              closeDate: $.detail.payload.CloseDate
+              createdById: $.detail.payload.CreatedById
+              createdDate: $.detail.payload.CreatedDate
+              currentStage: $.detail.payload.StageName
+              opportunityName: $.detail.payload.Name
+              orderId: $.detail.payload.OrderNumber__c
+            InputTemplate: |-
+              {
+                "orderId": "<orderId>",
+                "createdById": "<createdById>",
+                "createdDate": "<createdDate>",
+                "opportunityName": "<opportunityName>",
+                "closeDate": "<closeDate>",
+                "amount":"<amount>",
+                "currentStage": "<currentStage>"
+              }
+  
+  OpportunityCreatedServiceInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref OpportunityCreatedFn
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt OpportunityCreatedRule.Arn
+  
+  OpportunityEventServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AllowEventBridgePutEvents
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - events:PutEvents
+                Resource: !GetAtt SalesforceProcessedEventsBus.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt OpportunityServiceDLQ.Arn
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:Get*'
+                  - 'dynamodb:Query'
+                  - 'dynamodb:Scan'
+                  - 'dynamodb:Put*'
+                  - 'dynamodb:Update*'
+                Resource: !GetAtt OpportunityTable.Arn
+
+  SalesforceProcessedEventsBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: SalesforceProcessedEventsBus
+  
+  OpportunityServiceDLQ:
+    Type: AWS::SQS::Queue
+    
+Outputs:
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+
+  OpportunityCreatedFn:
+    Description: "Lambda Function ARN"
+    Value: !GetAtt OpportunityCreatedFn.Arn
+  OpportunityCreatedRule:
+    Description: "Event bridge rule ARN"
+    Value: !GetAtt OpportunityCreatedRule.Arn
+
