@@ -20,7 +20,7 @@ const checkEventStore = async (event) => {
       new GetCommand({
         TableName: tableName,
         Key: {
-          eventId: event.orderId
+          eventId: event.eventId
         },
       })
     );
@@ -45,7 +45,8 @@ const checkEventStore = async (event) => {
         new PutCommand({
           TableName: tableName,
           Item: {
-            eventId: event.orderId,
+            eventId: event.eventId,
+            orderId: event.orderId,
             opportunityName: event.opportunityName,
             closeDate: event.closeDate,
             amount: event.amount,

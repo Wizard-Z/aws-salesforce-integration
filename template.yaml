@@ -84,14 +84,81 @@ Resources:
               currentStage: $.detail.payload.StageName
               opportunityName: $.detail.payload.Name
               orderId: $.detail.payload.OrderNumber__c
+              eventId: $.detail.payload.ChangeEventHeader.recordIds[0]
             InputTemplate: |-
               {
                 "orderId": "<orderId>",
+                "eventId": "<eventId>",
                 "createdById": "<createdById>",
                 "createdDate": "<createdDate>",
                 "opportunityName": "<opportunityName>",
                 "closeDate": "<closeDate>",
                 "amount":"<amount>",
+                "currentStage": "<currentStage>"
+              }
+  
+  OpportunityUpdatedFn:
+    Type: AWS::Serverless::Function 
+    Properties:
+      CodeUri: ./opportunity-updated-service
+      Description: Function to handle opportunity updated event received from salesforce
+      MemorySize: 128
+      Timeout: 10
+      Handler: index.handler
+      Runtime: nodejs16.x
+      Architectures:
+        - x86_64
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 21600
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnSuccess:
+            Type: EventBridge 
+            Destination: !GetAtt SalesforceProcessedEventsBus.Arn
+      Environment:
+        Variables:
+          OPPORTUNITY_TABLE_NAME: !Ref OpportunityTable
+      EphemeralStorage:
+        Size: 512
+      Role: !GetAtt OpportunityEventServiceRole.Arn
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Auto
+      SnapStart:
+        ApplyOn: None
+      PackageType: Zip
+
+
+  OpportunityUpdatedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Rule to process Opportunity Updated Event
+      EventBusName: !Ref SalesforcePartnerEventBusArn
+      EventPattern:
+        detail-type:
+          - OpportunityChangeEvent
+        detail:
+          payload:
+            StageName:
+              - Qualification
+              - Value Proposition
+              - Proposal/Price Quote
+              - Closed Lost
+              - Closed Won
+            ChangeEventHeader:
+              changeType:
+                - UPDATE
+      Name: opportunity-updated
+      State: ENABLED
+      Targets:
+        - Id: "opportunityUpdatedId"
+          Arn: !GetAtt OpportunityUpdatedFn.Arn
+          InputTransformer:
+            InputPathsMap:
+              currentStage: $.detail.payload.StageName
+              eventId: $.detail.payload.ChangeEventHeader.recordIds[0]
+            InputTemplate: |-
+              {
+                "eventId": "<eventId>",
                 "currentStage": "<currentStage>"
               }
   
@@ -102,6 +169,14 @@ Resources:
       FunctionName: !Ref OpportunityCreatedFn
       Principal: events.amazonaws.com
       SourceArn: !GetAtt OpportunityCreatedRule.Arn
+
+  OpportunityUpdatedServiceInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref OpportunityUpdatedFn
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt OpportunityUpdatedRule.Arn
   
   OpportunityEventServiceRole:
     Type: AWS::IAM::Role
