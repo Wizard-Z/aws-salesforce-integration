@@ -218,6 +218,7 @@ Resources:
                   - 'dynamodb:Update*'
                 Resource: !GetAtt OpportunityTable.Arn
 
+  # API destination configuration can be added here.
   SalesforceProcessedEventsBus:
     Type: AWS::Events::EventBus
     Properties:
